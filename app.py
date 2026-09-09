@@ -439,7 +439,11 @@ else:
     if df_hist.empty or "tipo" not in df_hist.columns:
       st.info("Aún no hay registros de movimientos en la base de datos.")
     else:
-      df_ventas = df_hist[df_hist["tipo"] == "Venta"].copy()
+      # Limpieza para detectar "Venta" en cualquier formato (mayúsculas/minúsculas)
+      df_hist["tipo_clean"] = (
+          df_hist["tipo"].astype(str).str.strip().str.lower()
+      )
+      df_ventas = df_hist[df_hist["tipo_clean"].str.contains("venta")].copy()
 
       if df_ventas.empty:
         st.info(
@@ -449,10 +453,10 @@ else:
       else:
         df_ventas["cantidad"] = pd.to_numeric(
             df_ventas["cantidad"], errors="coerce"
-        )
+        ).fillna(0)
         df_ventas["precio"] = pd.to_numeric(
             df_ventas["precio"], errors="coerce"
-        )
+        ).fillna(0)
         df_ventas["monto_total"] = df_ventas["cantidad"] * df_ventas["precio"]
 
         m1, m2, m3 = st.columns(3)
