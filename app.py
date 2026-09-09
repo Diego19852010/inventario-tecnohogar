@@ -89,10 +89,19 @@ def obtener_productos():
 
 def obtener_historial():
   conn = sqlite3.connect(DB_NAME)
+  # Uso de LEFT JOIN para garantizar que los movimientos siempre se muestren
   query = """
-        SELECT m.id, p.codigo, p.nombre AS producto, p.categoria, p.precio, m.tipo, m.cantidad, m.fecha_hora 
+        SELECT 
+            m.id, 
+            COALESCE(p.codigo, 'N/A') AS codigo, 
+            COALESCE(p.nombre, 'Producto Eliminado') AS producto, 
+            COALESCE(p.categoria, 'Sin Categoría') AS categoria, 
+            COALESCE(p.precio, 0) AS precio, 
+            m.tipo, 
+            m.cantidad, 
+            m.fecha_hora 
         FROM movimientos m
-        JOIN productos p ON m.producto_id = p.id
+        LEFT JOIN productos p ON m.producto_id = p.id
         ORDER BY m.id DESC
     """
   df = pd.read_sql_query(query, conn)
@@ -108,7 +117,7 @@ def agregar_producto(codigo, nombre, categoria, precio, stock, stock_min):
         INSERT INTO productos (codigo, nombre, categoria, precio, stock, stock_minimo)
         VALUES (?, ?, ?, ?, ?, ?)
     """,
-      (codigo, nombre, categoria, precio, stock, stock_min),
+      (codigo, nombre, categoria, float(precio), int(stock), int(stock_min)),
   )
 
   prod_id = cursor.lastrowid
@@ -118,7 +127,7 @@ def agregar_producto(codigo, nombre, categoria, precio, stock, stock_min):
         INSERT INTO movimientos (producto_id, tipo, cantidad, fecha_hora)
         VALUES (?, ?, ?, ?)
     """,
-      (prod_id, "Registro Inicial", stock, fecha),
+      (prod_id, "Registro Inicial", int(stock), fecha),
   )
 
   conn.commit()
@@ -128,8 +137,10 @@ def agregar_producto(codigo, nombre, categoria, precio, stock, stock_min):
 def registrar_movimiento(prod_id, tipo, cantidad_cambio, nuevo_stock):
   conn = sqlite3.connect(DB_NAME)
   cursor = conn.cursor()
+
   cursor.execute(
-      "UPDATE productos SET stock = ? WHERE id = ?", (nuevo_stock, prod_id)
+      "UPDATE productos SET stock = ? WHERE id = ?",
+      (int(nuevo_stock), int(prod_id)),
   )
 
   fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -138,7 +149,7 @@ def registrar_movimiento(prod_id, tipo, cantidad_cambio, nuevo_stock):
         INSERT INTO movimientos (producto_id, tipo, cantidad, fecha_hora)
         VALUES (?, ?, ?, ?)
     """,
-      (prod_id, tipo, cantidad_cambio, fecha),
+      (int(prod_id), str(tipo), int(cantidad_cambio), fecha),
   )
 
   conn.commit()
@@ -439,7 +450,6 @@ else:
     if df_hist.empty or "tipo" not in df_hist.columns:
       st.info("Aún no hay registros de movimientos en la base de datos.")
     else:
-      # Limpieza para detectar "Venta" en cualquier formato (mayúsculas/minúsculas)
       df_hist["tipo_clean"] = (
           df_hist["tipo"].astype(str).str.strip().str.lower()
       )
