@@ -89,6 +89,7 @@ def obtener_productos():
 
 def obtener_historial():
   conn = sqlite3.connect(DB_NAME)
+  # Aseguramos que se obtenga el precio actual del producto en el historial
   query = """
         SELECT m.id, p.codigo, p.nombre AS producto, p.categoria, p.precio, m.tipo, m.cantidad, m.fecha_hora 
         FROM movimientos m
@@ -98,6 +99,69 @@ def obtener_historial():
   df = pd.read_sql_query(query, conn)
   conn.close()
   return df
+
+
+# ... (dentro de tu bloque de navegación) ...
+
+# --- DASHBOARD Y GRÁFICOS ---
+elif opcion == "Dashboard y Gráficos":
+  st.subheader("📊 Métricas y Análisis de Ventas")
+  df_hist = obtener_historial()
+
+  # Verificar que existan datos y la columna 'tipo'
+  if df_hist.empty or "tipo" not in df_hist.columns:
+    st.info("Aún no hay registros de movimientos en la base de datos.")
+  else:
+    df_ventas = df_hist[df_hist["tipo"] == "Venta"].copy()
+
+    if df_ventas.empty:
+      st.info(
+          "Aún no se han registrado **Ventas**. Ve a la opción 'Registrar"
+          " Venta' para generar datos."
+      )
+    else:
+      # Asegurar conversión de tipos numéricos
+      df_ventas["cantidad"] = pd.to_numeric(
+          df_ventas["cantidad"], errors="coerce"
+      )
+      df_ventas["precio"] = pd.to_numeric(df_ventas["precio"], errors="coerce")
+      df_ventas["monto_total"] = df_ventas["cantidad"] * df_ventas["precio"]
+
+      # Métricas principales
+      m1, m2, m3 = st.columns(3)
+      m1.metric(
+          "Total Recaudado ($)", f"${df_ventas['monto_total'].sum():,.2f}"
+      )
+      m2.metric("Unidades Vendidas", int(df_ventas["cantidad"].sum()))
+      m3.metric("Transacciones de Venta", len(df_ventas))
+
+      st.markdown("---")
+      col_g1, col_g2 = st.columns(2)
+
+      with col_g1:
+        st.markdown("### 🏆 Más Vendidos (Unidades)")
+        ventas_por_prod = (
+            df_ventas.groupby("producto")["cantidad"].sum().reset_index()
+        )
+        fig_bar = px.bar(
+            ventas_por_prod,
+            x="producto",
+            y="cantidad",
+            labels={"producto": "Producto", "cantidad": "Unidades Vendidas"},
+            color="cantidad",
+            color_continuous_scale="Viridis",
+        )
+        st.plotly_chart(fig_bar, use_container_width=True)
+
+      with col_g2:
+        st.markdown("### 🏷️ Ventas por Categoría ($)")
+        ventas_por_cat = (
+            df_ventas.groupby("categoria")["monto_total"].sum().reset_index()
+        )
+        fig_pie = px.pie(
+            ventas_por_cat, values="monto_total", names="categoria", hole=0.4
+        )
+        st.plotly_chart(fig_pie, use_container_width=True)
 
 
 def agregar_producto(codigo, nombre, categoria, precio, stock, stock_min):
