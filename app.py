@@ -1,6 +1,7 @@
 from datetime import datetime
 import io
 import sqlite3
+import zoneinfo  # Librería nativa para manejo de zonas horarias
 import cv2
 import numpy as np
 import pandas as pd
@@ -15,6 +16,12 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 DB_NAME = "inventario_v2.db"
+
+
+def obtener_fecha_hora_actual():
+  """Obtiene la fecha y hora actual ajustada a la zona horaria local."""
+  tz = zoneinfo.ZoneInfo("America/Santiago")
+  return datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def init_db():
@@ -120,7 +127,7 @@ def agregar_producto(codigo, nombre, categoria, precio, stock, stock_min):
   )
 
   prod_id = cursor.lastrowid
-  fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+  fecha = obtener_fecha_hora_actual()
   cursor.execute(
       """
         INSERT INTO movimientos (producto_id, tipo, cantidad, fecha_hora)
@@ -142,7 +149,7 @@ def registrar_movimiento(prod_id, tipo, cantidad_cambio, nuevo_stock):
       (int(nuevo_stock), int(prod_id)),
   )
 
-  fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+  fecha = obtener_fecha_hora_actual()
   cursor.execute(
       """
         INSERT INTO movimientos (producto_id, tipo, cantidad, fecha_hora)
@@ -197,10 +204,7 @@ def generar_pdf_boleta(
       Paragraph("<b>TECNOHOGAR - COMPROBANTE DE VENTA</b>", title_style)
   )
   elements.append(
-      Paragraph(
-          f"Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}",
-          subtitle_style,
-      )
+      Paragraph(f"Fecha: {obtener_fecha_hora_actual()}", subtitle_style)
   )
   elements.append(
       Paragraph(
@@ -268,27 +272,20 @@ st.markdown(
 st.markdown(
     """
     <style>
-    /* Estilos generales */
     .stApp {
         background-color: #F8FAFC;
     }
-    
-    /* Encabezados modernos */
     h1, h2, h3 {
         font-family: 'Inter', sans-serif;
         color: #0F172A;
         font-weight: 700;
     }
-
-    /* Estilo de la Sidebar */
     section[data-testid="stSidebar"] {
         background-color: #0F172A !important;
     }
     section[data-testid="stSidebar"] * {
         color: #F8FAFC !important;
     }
-
-    /* Tarjetas de Métricas Personalizadas */
     .metric-card {
         background: #FFFFFF;
         border-radius: 12px;
@@ -309,8 +306,6 @@ st.markdown(
         font-size: 1.8rem;
         font-weight: 800;
     }
-
-    /* Botones Estilizados */
     .stButton>button {
         background-color: #2563EB;
         color: white;
@@ -324,8 +319,6 @@ st.markdown(
         background-color: #1D4ED8;
         box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
     }
-
-    /* Ajuste para formularios */
     div[data-testid="stForm"] {
         background: #FFFFFF;
         padding: 2rem;
@@ -408,7 +401,6 @@ else:
 
   opcion = st.sidebar.radio("Navegación", opciones)
 
-  # --- HEADER PRINCIPAL ---
   st.markdown(
       "<h1 style='color: #0F172A;'>📦 TecnoHogar Management</h1>",
       unsafe_allow_html=True,
@@ -525,7 +517,7 @@ else:
           if st.button("🛍️ Confirmar Venta", use_container_width=True):
             nuevo_stock = stock_actual - cant_venta
             registrar_movimiento(prod["id"], "Venta", cant_venta, nuevo_stock)
-            st.success(f"¡Venta realizada con éxito!")
+            st.success("¡Venta realizada con éxito!")
 
             pdf_bytes = generar_pdf_boleta(
                 prod["nombre"], cant_venta, prod["precio"], total, cliente
@@ -565,7 +557,6 @@ else:
         ).fillna(0)
         df_ventas["monto_total"] = df_ventas["cantidad"] * df_ventas["precio"]
 
-        # Tarjetas Métricas Personalizadas
         m1, m2, m3 = st.columns(3)
         with m1:
           st.markdown(
