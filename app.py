@@ -5,6 +5,12 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+# Librerías para generar el PDF de la boleta
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
 DB_NAME = "inventario.db"
 
 
@@ -12,7 +18,6 @@ def init_db():
   conn = sqlite3.connect(DB_NAME)
   cursor = conn.cursor()
 
-  # Tabla de Productos
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS productos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -24,7 +29,6 @@ def init_db():
         )
     """)
 
-  # Tabla de Historial / Movimientos
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS movimientos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -118,20 +122,69 @@ def generar_excel():
   return output.getvalue()
 
 
-# Inicializar base de datos
+def generar_pdf_boleta(producto_nombre, cantidad, precio_unitario, total, cliente_nombre):
+  buffer = io.BytesIO()
+  doc = SimpleDocTemplate(
+      buffer, pagesize=letter, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40
+  )
+  elements = []
+
+  styles = getSampleStyleSheet()
+  title_style = ParagraphStyle(
+      "TitleStyle", parent=styles["Heading1"], fontSize=18, textColor=colors.HexColor("#1E3A8A")
+  )
+  subtitle_style = ParagraphStyle(
+      "SubTitleStyle", parent=styles["Normal"], fontSize=10, textColor=colors.gray
+  )
+
+  # Encabezado
+  elements.append(Paragraph("<b>TECNOHOGAR - COMPROBANTE DE VENTA</b>", title_style))
+  elements.append(Paragraph(f"Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}", subtitle_style))
+  elements.append(Paragraph(f"Cliente: {cliente_nombre if cliente_nombre else 'Cliente General'}", subtitle_style))
+  elements.append(Spacer(1, 15))
+
+  # Tabla de Detalle
+  data = [
+      ["Producto", "Cantidad", "Precio Unitario", "Total"],
+      [producto_nombre, str(cantidad), f"${precio_unitario:.2f}", f"${total:.2f}"],
+  ]
+
+  tabla = Table(data, colWidths=[200, 80, 100, 100])
+  tabla.setStyle(
+      TableStyle([
+          ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1E3A8A")),
+          ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+          ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+          ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+          ("BOTTOMPADDING", (0, 0), (-1, 0), 8),
+          ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#F3F4F6")),
+          ("GRID", (0, 0), (-1, -1), 1, colors.HexColor("#D1D5DB")),
+      ])
+  )
+
+  elements.append(tabla)
+  elements.append(Spacer(1, 20))
+  elements.append(
+      Paragraph(
+          f"<b>TOTAL PAGADO: ${total:.2f}</b>",
+          ParagraphStyle("Total", parent=styles["Heading2"], fontSize=14, textColor=colors.HexColor("#059669")),
+      )
+  )
+  elements.append(Spacer(1, 30))
+  elements.append(Paragraph("<i>¡Gracias por tu compra en TecnoHogar!</i>", subtitle_style))
+
+  doc.build(elements)
+  return buffer.getvalue()
+
+
+# Inicialización de la BD
 init_db()
 
-# Configuración de Streamlit
-st.set_page_config(
-    page_title="TecnoHogar - Inventario", layout="wide", page_icon="📦"
-)
-st.markdown(
-    '<meta name="google" content="notranslate">', unsafe_allow_html=True
-)
+st.set_page_config(page_title="TecnoHogar - Inventario", layout="wide", page_icon="📦")
+st.markdown('<meta name="google" content="notranslate">', unsafe_allow_html=True)
 
 st.title("📦 Sistema de Gestión de Inventario - TecnoHogar")
 
-# Menú Navegación
 opcion = st.sidebar.selectbox(
     "Menú de Opciones",
     [
@@ -145,7 +198,7 @@ opcion = st.sidebar.selectbox(
     ],
 )
 
-# --- 1. VER INVENTARIO CON BÚSQUEDA Y FILTROS ---
+# --- 1. VER INVENTARIO ---
 if opcion == "Ver Inventario":
   st.subheader("📋 Lista de Productos")
   df = obtener_productos()
@@ -162,9 +215,7 @@ if opcion == "Ver Inventario":
 
     df_filtrado = df.copy()
     if busqueda:
-      df_filtrado = df_filtrado[
-          df_filtrado["nombre"].str.contains(busqueda, case=False)
-      ]
+      df_filtrado = df_filtrado[df_filtrado["nombre"].str.contains(busqueda, case=False)]
     if cat_filtro != "Todas":
       df_filtrado = df_filtrado[df_filtrado["categoria"] == cat_filtro]
 
@@ -186,23 +237,14 @@ elif opcion == "Registrar Venta":
     prod = df[df["nombre"] == prod_nom].iloc[0]
     stock_actual = int(prod["stock"])
 
-    st.write(
-        f"**Precio:** ${prod['precio']:.2f} | **Stock disponible:**"
-        f" {stock_actual}"
-    )
+    st.write(f"**Precio:** ${prod['precio']:.2f} | **Stock disponible:** {stock_actual}")
 
     if stock_actual <= 0:
-      st.error(
-          "⚠️ Este producto no tiene unidades disponibles en stock para"
-          " vender."
-      )
+      st.error("⚠️ Este producto no tiene unidades disponibles en stock para vender.")
     else:
+      cliente = st.text_input("Nombre del Cliente (Opcional)", value="Cliente General")
       cant_venta = st.number_input(
-          "Cantidad a vender",
-          min_value=1,
-          max_value=stock_actual,
-          value=1,
-          step=1,
+          "Cantidad a vender", min_value=1, max_value=stock_actual, value=1, step=1
       )
       total = cant_venta * prod["precio"]
       st.write(f"### **Total a cobrar:** ${total:.2f}")
@@ -211,28 +253,33 @@ elif opcion == "Registrar Venta":
         nuevo_stock = stock_actual - cant_venta
         registrar_movimiento(prod["id"], "Venta", cant_venta, nuevo_stock)
         st.success(
-            f"¡Venta registrada! Se descontaron {cant_venta} unidad(es) de"
-            f" '{prod['nombre']}'."
+            f"¡Venta registrada! Se descontaron {cant_venta} unidad(es) de '{prod['nombre']}'."
+        )
+
+        # Generar comprobante PDF
+        pdf_bytes = generar_pdf_boleta(
+            prod["nombre"], cant_venta, prod["precio"], total, cliente
+        )
+
+        st.download_button(
+            label="📄 Descargar Boleta en PDF",
+            data=pdf_bytes,
+            file_name=f"boleta_{prod['nombre']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+            mime="application/pdf",
         )
 
 # --- 3. DASHBOARD Y GRÁFICOS ---
 elif opcion == "Dashboard y Gráficos":
   st.subheader("📊 Métricas y Análisis de Ventas")
   df_hist = obtener_historial()
-  df_prod = obtener_productos()
 
-  # Filtrar solo ventas
   df_ventas = df_hist[df_hist["tipo"] == "Venta"].copy()
 
   if df_ventas.empty:
-    st.info(
-        "Aún no hay registro de ventas para mostrar gráficos. Realiza algunas"
-        " ventas primero."
-    )
+    st.info("Aún no hay registro de ventas para mostrar gráficos.")
   else:
     df_ventas["monto_total"] = df_ventas["cantidad"] * df_ventas["precio"]
 
-    # Tarjetas Métricas
     m1, m2, m3 = st.columns(3)
     m1.metric("Total Recaudado ($)", f"${df_ventas['monto_total'].sum():,.2f}")
     m2.metric("Unidades Vendidas", df_ventas["cantidad"].sum())
@@ -240,14 +287,11 @@ elif opcion == "Dashboard y Gráficos":
 
     st.markdown("---")
 
-    # Gráficos
     col_g1, col_g2 = st.columns(2)
 
     with col_g1:
       st.markdown("### 🏆 Más Vendidos (Unidades)")
-      ventas_por_prod = (
-          df_ventas.groupby("producto")["cantidad"].sum().reset_index()
-      )
+      ventas_por_prod = df_ventas.groupby("producto")["cantidad"].sum().reset_index()
       fig_bar = px.bar(
           ventas_por_prod,
           x="producto",
@@ -260,15 +304,8 @@ elif opcion == "Dashboard y Gráficos":
 
     with col_g2:
       st.markdown("### 🏷️ Ventas por Categoría ($)")
-      ventas_por_cat = (
-          df_ventas.groupby("categoria")["monto_total"].sum().reset_index()
-      )
-      fig_pie = px.pie(
-          ventas_por_cat,
-          values="monto_total",
-          names="categoria",
-          hole=0.4,
-      )
+      ventas_por_cat = df_ventas.groupby("categoria")["monto_total"].sum().reset_index()
+      fig_pie = px.pie(ventas_por_cat, values="monto_total", names="categoria", hole=0.4)
       st.plotly_chart(fig_pie, use_container_width=True)
 
 # --- 4. AGREGAR PRODUCTO ---
@@ -278,8 +315,7 @@ elif opcion == "Agregar Producto":
   with st.form("form_agregar"):
     nombre = st.text_input("Nombre del Producto")
     categoria = st.selectbox(
-        "Categoría",
-        ["Cables y Adaptadores", "Audio", "Cargadores", "Fundas", "Otros"],
+        "Categoría", ["Cables y Adaptadores", "Audio", "Cargadores", "Fundas", "Otros"]
     )
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -336,8 +372,8 @@ elif opcion == "Historial de Movimientos":
 elif opcion == "Exportar Reportes":
   st.subheader("📥 Descargar Reportes en Excel")
   st.write(
-      "Descarga un archivo con las hojas **Inventario Actual** e **Historial"
-      " de Movimientos** actualizado en tiempo real."
+      "Descarga un archivo con las hojas **Inventario Actual** e **Historial de Movimientos**"
+      " actualizado en tiempo real."
   )
 
   excel_data = generar_excel()
